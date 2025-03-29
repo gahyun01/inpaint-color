@@ -1,36 +1,29 @@
-import math
-import os
-
-import numpy as np
 import torch
 import torch.nn as nn
-from PIL import Image
-from torch.optim import Adam
 from torchvision import transforms
-from tqdm import tqdm
+from torch.optim import Adam
 
+from PIL import Image
+import numpy as np
+import os
+from tqdm import tqdm
+import math
 
 class UNetColorization(nn.Module):
     def __init__(self, in_channels=1, out_channels=3):
         super(UNetColorization, self).__init__()
 
         def down_block(in_feat, out_feat, normalize=True):
-            layers = [
-                nn.Conv2d(in_feat, out_feat, kernel_size=4, stride=2, padding=1)
-            ]
+            layers = [nn.Conv2d(in_feat, out_feat, kernel_size=4, stride=2, padding=1)]
             if normalize:
                 layers.append(nn.BatchNorm2d(out_feat))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return nn.Sequential(*layers)
 
         def up_block(in_feat, out_feat, dropout=0.0):
-            layers = [
-                nn.ConvTranspose2d(
-                    in_feat, out_feat, kernel_size=4, stride=2, padding=1
-                ),
-                nn.BatchNorm2d(out_feat),
-                nn.ReLU(inplace=True),
-            ]
+            layers = [nn.ConvTranspose2d(in_feat, out_feat, kernel_size=4, stride=2, padding=1),
+                      nn.BatchNorm2d(out_feat),
+                      nn.ReLU(inplace=True)] 
             if dropout:
                 layers.append(nn.Dropout(dropout))
             return nn.Sequential(*layers)
@@ -52,10 +45,8 @@ class UNetColorization(nn.Module):
         self.up6 = up_block(512, 128)
         self.up7 = up_block(256, 64)
         self.up8 = nn.Sequential(
-            nn.ConvTranspose2d(
-                128, out_channels, kernel_size=4, stride=2, padding=1
-            ),
-            nn.Tanh(),
+            nn.ConvTranspose2d(128, out_channels, kernel_size=4, stride=2, padding=1),
+            nn.Tanh()
         )
 
     def forward(self, x):
@@ -78,19 +69,16 @@ class UNetColorization(nn.Module):
         u8 = self.up8(torch.cat([u7, d1], 1))
 
         return u8
-
-
+    
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(torch.cuda.is_available())
 
-model = UNetColorization()
+model= UNetColorization()
 loss_fn = nn.MSELoss()
 optimizer = Adam(model.parameters(), lr=3e-4)
-transform = transforms.Compose(
-    [
-        transforms.ToTensor(),
-    ]
-)
+transform = transforms.Compose([
+    transforms.ToTensor(),
+])
 
 model.to(device)
 # model(torch.randn(1, 1, 512, 512).to(device)) # Example input tensor with shape (batch_size, in_channels, height, width)
@@ -103,22 +91,31 @@ train_len = len(img_names)
 min_loss = 1
 count = 0
 BATCH_SIZE = 8
-for epoch in tqdm(range(1, 10 + 1)):
-    for i in tqdm(range(math.ceil(train_len / BATCH_SIZE)), leave=False):
-        optimizer.zero_grad()  # 기울기 초기화
+for epoch in tqdm(range(1, 10 +  1)):
+    for i in tqdm(range(math.ceil(train_len / BATCH_SIZE))):
+        optimizer.zero_grad() # 기울기 초기화
 
-        gray_list = [transform(Image.open(gray_path + img).convert("L")).unsqueeze(0) for img in img_names[i:i+BATCH_SIZE]]
-        color_list = [transform(Image.open(color_path + img).convert("RGB")).unsqueeze(0) for img in img_names[i:i+BATCH_SIZE]]
+        gray_list = []
+        color_list = []
+        if count >= int(train_len / BATCH_SIZE):
+            for batch in range(BATCH_SIZE):
+                if train_len > i * BATCH_SIZE + batch:
+                    gray_list.append(transform(Image.open(gray_path + img_names[i * BATCH_SIZE + batch]).convert("L")).unsqueeze(0))
+                    color_list.append(transform(Image.open(color_path + img_names[i * BATCH_SIZE + batch]).convert("RGB")).unsqueeze(0))
+        else:
+            for batch in range(BATCH_SIZE):
+                gray_list.append(transform(Image.open(gray_path + img_names[i * BATCH_SIZE + batch]).convert("L")).unsqueeze(0))
+                color_list.append(transform(Image.open(color_path + img_names[i * BATCH_SIZE + batch]).convert("RGB")).unsqueeze(0))
 
         gray = torch.cat(gray_list, dim=0).to(device)
         color = torch.cat(color_list, dim=0).to(device)
-
+        
         pred = model(gray)
         loss = loss_fn(pred, color)
         # print(loss.item())
         loss.backward()
         optimizer.step()
-
+        
         # print(f"\r[Epoch {epoch}/10] [Batch {i}/{train_len}] [loss: {loss.item()}]", end="")
 
         if min_loss > loss.item():
