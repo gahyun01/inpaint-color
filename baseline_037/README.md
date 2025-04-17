@@ -1,1 +1,1 @@
-</img src="score.png">
+![score](score.png)
